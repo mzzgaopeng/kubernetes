@@ -179,13 +179,13 @@ func (plugin *flexVolumePlugin) newMounterInternal(spec *volume.Spec, pod *api.P
 		return nil, err
 	}
 
-	var metricsProvider volume.MetricsProvider
+	/*var metricsProvider volume.MetricsProvider
 	if plugin.capabilities.SupportsMetrics {
 		metricsProvider = volume.NewMetricsStatFS(plugin.host.GetPodVolumeDir(
 			pod.UID, utilstrings.EscapeQualifiedNameForDisk(sourceDriver), spec.Name()))
 	} else {
 		metricsProvider = &volume.MetricsNil{}
-	}
+	} */
 
 	return &flexVolumeMounter{
 		flexVolume: &flexVolume{
@@ -198,12 +198,17 @@ func (plugin *flexVolumePlugin) newMounterInternal(spec *volume.Spec, pod *api.P
 			podNamespace:          pod.Namespace,
 			podServiceAccountName: pod.Spec.ServiceAccountName,
 			volName:               spec.Name(),
-			MetricsProvider:       metricsProvider,
+			MetricsProvider:       volume.NewMetricsStatFS(getPath(plugin, sourceDriver, pod.UID, spec.Name())),
 		},
 		runner:   runner,
 		spec:     spec,
 		readOnly: readOnly,
 	}, nil
+}
+
+func getPath(plugin *flexVolumePlugin, driverName string, podUID types.UID, volName string) string {
+	name := driverName
+	return plugin.host.GetPodVolumeDir(podUID, utilstrings.EscapeQualifiedNameForDisk(name), volName)
 }
 
 // NewUnmounter is part of the volume.VolumePlugin interface.
@@ -213,13 +218,13 @@ func (plugin *flexVolumePlugin) NewUnmounter(volName string, podUID types.UID) (
 
 // newUnmounterInternal is the internal unmounter routine to clean the volume.
 func (plugin *flexVolumePlugin) newUnmounterInternal(volName string, podUID types.UID, mounter mount.Interface, runner exec.Interface) (volume.Unmounter, error) {
-	var metricsProvider volume.MetricsProvider
+	/*var metricsProvider volume.MetricsProvider
 	if plugin.capabilities.SupportsMetrics {
 		metricsProvider = volume.NewMetricsStatFS(plugin.host.GetPodVolumeDir(
 			podUID, utilstrings.EscapeQualifiedNameForDisk(plugin.driverName), volName))
 	} else {
 		metricsProvider = &volume.MetricsNil{}
-	}
+	} */
 
 	return &flexVolumeUnmounter{
 		flexVolume: &flexVolume{
@@ -229,7 +234,7 @@ func (plugin *flexVolumePlugin) newUnmounterInternal(volName string, podUID type
 			plugin:          plugin,
 			podUID:          podUID,
 			volName:         volName,
-			MetricsProvider: metricsProvider,
+			MetricsProvider: volume.NewMetricsStatFS(getPath(plugin, plugin.driverName, podUID, volName)),
 		},
 		runner: runner,
 	}, nil
