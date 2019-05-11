@@ -46,6 +46,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/metrics"
 	"k8s.io/kubernetes/pkg/scheduler/util"
 	"k8s.io/kubernetes/pkg/scheduler/volumebinder"
+	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 )
 
 const (
@@ -112,6 +113,8 @@ type genericScheduler struct {
 	pdbLister                algorithm.PDBLister
 	disablePreemption        bool
 	percentageOfNodesToScore int32
+	// CmosConfiguration is the configuration of CMOS.
+	cmosConfiguration        *config.CmosSchedulerConfiguration
 }
 
 // snapshot snapshots equivalane cache and node infos for all fit and priority
@@ -144,6 +147,13 @@ func (g *genericScheduler) Schedule(pod *v1.Pod, nodeLister algorithm.NodeLister
 		return "", err
 	}
 
+	predicateStep := g.cmosConfiguration.PredicateStep
+	nodeListLengthThreshold := g.cmosConfiguration.NodeListLengthThreshold
+	var nodes_slices = make([][]*v1.Node, predicateStep)
+	sliceChosen := int((time.Now().UnixNano() / 1000) % int64(predicateStep))
+	nodesSliced := false
+	klog.V(5).Infof("predicateStep: %d nodeListLengthThreshold: %d sliceChosen: %d", predicateStep, nodeListLengthThreshold, sliceChosen)
+
 	nodes, err := nodeLister.List()
 	if err != nil {
 		return "", err
@@ -152,17 +162,65 @@ func (g *genericScheduler) Schedule(pod *v1.Pod, nodeLister algorithm.NodeLister
 		return "", ErrNoNodesAvailable
 	}
 
-	err = g.snapshot()
+	if len(nodes) >= nodeListLengthThreshold && predicateStep > 1 {
+		nodesSliced = true
+		oneStep := len(nodes) / predicateStep
+		for i, j := 0, 0; i < predicateStep; i, j = i+1, j+oneStep {
+			if i == predicateStep-1 {
+				nodes_slices[i] = nodes[j:]
+			} else {
+				nodes_slices[i] = nodes[j : j+oneStep]
+			}
+		}
+	} else {
+		klog.V(5).Infof("predicate all nodes without cmosConfiguration")
+	}
+
+	if nodesSliced {
+		for i, n := range nodes_slices {
+			klog.V(5).Infof("i: %d", i)
+			klog.V(5).Infof("len of slice:%d", len(n))
+		}
+	}
+
+	err = g.cache.UpdateNodeNameToInfoMap(g.cachedNodeInfoMap)
 	if err != nil {
 		return "", err
 	}
 
 	trace.Step("Computing predicates")
 	startPredicateEvalTime := time.Now()
-	filteredNodes, failedPredicateMap, err := g.findNodesThatFit(pod, nodes)
+	nodesChosen := nodes
+	if nodesSliced {
+		nodesChosen = nodes_slices[sliceChosen]
+	}
+	filteredNodes, failedPredicateMap, err := g.findNodesThatFit(pod, nodesChosen)
 	if err != nil {
 		return "", err
 	}
+
+	if len(filteredNodes) == 0 && nodesSliced {
+		klog.V(5).Infof("first try failed")
+		for i := range nodes_slices {
+			if i != sliceChosen {
+				filteredNodesTry, failedPredicateMapTry, errTry := g.findNodesThatFit(pod, nodesChosen)
+				if errTry != nil {
+					return "", errTry
+				}
+				if len(filteredNodesTry) > 0 {
+					klog.V(5).Infof("len of filteredNodesTry:%d", len(filteredNodesTry))
+					for _, v := range filteredNodesTry {
+						filteredNodes = append(filteredNodes, v)
+					}
+					for key, value := range failedPredicateMapTry {
+						failedPredicateMap[key] = value
+					}
+					break
+				}
+			}
+		}
+	}
+	klog.V(5).Infof("len of filteredNodes:%d", len(filteredNodes))
 
 	if len(filteredNodes) == 0 {
 		return "", &FitError{
@@ -1161,6 +1219,7 @@ func NewGenericScheduler(
 	alwaysCheckAllPredicates bool,
 	disablePreemption bool,
 	percentageOfNodesToScore int32,
+	cmosConfig *config.CmosSchedulerConfiguration,
 ) algorithm.ScheduleAlgorithm {
 	return &genericScheduler{
 		cache:                    cache,
@@ -1178,5 +1237,6 @@ func NewGenericScheduler(
 		alwaysCheckAllPredicates: alwaysCheckAllPredicates,
 		disablePreemption:        disablePreemption,
 		percentageOfNodesToScore: percentageOfNodesToScore,
+		cmosConfiguration:        cmosConfig,
 	}
 }

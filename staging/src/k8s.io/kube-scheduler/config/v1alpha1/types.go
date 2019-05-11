@@ -86,6 +86,9 @@ type KubeSchedulerConfiguration struct {
 	// Value must be non-negative integer. The value zero indicates no waiting.
 	// If this value is nil, the default value will be used.
 	BindTimeoutSeconds *int64 `json:"bindTimeoutSeconds"`
+
+	//Configuration of scheduler optimization for CMOS
+	CmosConfiguration CmosSchedulerConfiguration
 }
 
 // SchedulerAlgorithmSource is the source of a scheduler algorithm. One source
@@ -131,3 +134,14 @@ type KubeSchedulerLeaderElectionConfiguration struct {
 	// LockObjectName defines the lock object name
 	LockObjectName string `json:"lockObjectName"`
 }
+
+//Configuration of scheduler optimization for CMOS
+type CmosSchedulerConfiguration struct {
+	//Step used for interate through list of node
+	PredicateStep int
+
+	//Threshold used to decide whether to use a step for predicate, if length of node list
+	//is larger then NodeListLengthThreshold, we should iterate through nodeLister with a step of PredicateStep.
+	NodeListLengthThreshold int
+}
+

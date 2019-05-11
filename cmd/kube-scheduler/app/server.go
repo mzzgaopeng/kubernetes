@@ -190,7 +190,8 @@ func Run(cc schedulerserverconfig.CompletedConfig, stopCh <-chan struct{}) error
 		scheduler.WithEquivalenceClassCacheEnabled(cc.ComponentConfig.EnableContentionProfiling),
 		scheduler.WithPreemptionDisabled(cc.ComponentConfig.DisablePreemption),
 		scheduler.WithPercentageOfNodesToScore(cc.ComponentConfig.PercentageOfNodesToScore),
-		scheduler.WithBindTimeoutSeconds(*cc.ComponentConfig.BindTimeoutSeconds))
+		scheduler.WithBindTimeoutSeconds(*cc.ComponentConfig.BindTimeoutSeconds),
+		scheduler.WitchStep(cc.ComponentConfig.CmosConfiguration))
 	if err != nil {
 		return err
 	}
@@ -360,6 +361,8 @@ func NewSchedulerConfig(s schedulerserverconfig.CompletedConfig) (*factory.Confi
 		DisablePreemption:              s.ComponentConfig.DisablePreemption,
 		PercentageOfNodesToScore:       s.ComponentConfig.PercentageOfNodesToScore,
 		BindTimeoutSeconds:             *s.ComponentConfig.BindTimeoutSeconds,
+                // CmosConfiguration is optional
+		CmosConfig:                     &s.ComponentConfig.CmosConfiguration,
 	})
 
 	source := s.ComponentConfig.AlgorithmSource

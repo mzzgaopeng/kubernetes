@@ -65,6 +65,7 @@ import (
 	internalqueue "k8s.io/kubernetes/pkg/scheduler/internal/queue"
 	"k8s.io/kubernetes/pkg/scheduler/util"
 	"k8s.io/kubernetes/pkg/scheduler/volumebinder"
+	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 )
 
 const (
@@ -236,6 +237,9 @@ type configFactory struct {
 
 	// percentageOfNodesToScore specifies percentage of all nodes to score in each scheduling cycle.
 	percentageOfNodesToScore int32
+
+	// CmosConfiguration is the configuration of CMOS.
+	cmosConfiguration *config.CmosSchedulerConfiguration
 }
 
 // ConfigFactoryArgs is a set arguments passed to NewConfigFactory.
@@ -258,6 +262,7 @@ type ConfigFactoryArgs struct {
 	PercentageOfNodesToScore       int32
 	BindTimeoutSeconds             int64
 	StopCh                         <-chan struct{}
+	CmosConfig                     *config.CmosSchedulerConfiguration
 }
 
 // NewConfigFactory initializes the default implementation of a Configurator. To encourage eventual privatization of the struct type, we only
@@ -294,6 +299,7 @@ func NewConfigFactory(args *ConfigFactoryArgs) Configurator {
 		enableEquivalenceClassCache:    args.EnableEquivalenceClassCache,
 		disablePreemption:              args.DisablePreemption,
 		percentageOfNodesToScore:       args.PercentageOfNodesToScore,
+		cmosConfiguration:              args.CmosConfig,
 	}
 
 	c.scheduledPodsHasSynced = args.PodInformer.Informer().HasSynced
@@ -1300,6 +1306,7 @@ func (c *configFactory) CreateFromKeys(predicateKeys, priorityKeys sets.String, 
 		c.alwaysCheckAllPredicates,
 		c.disablePreemption,
 		c.percentageOfNodesToScore,
+		c.cmosConfiguration,
 	)
 
 	podBackoff := util.CreateDefaultPodBackoff()

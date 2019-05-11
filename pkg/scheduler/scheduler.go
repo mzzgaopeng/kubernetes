@@ -19,6 +19,7 @@ package scheduler
 import (
 	"fmt"
 	"io/ioutil"
+	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"os"
 	"time"
 
@@ -71,6 +72,7 @@ type schedulerOptions struct {
 	disablePreemption              bool
 	percentageOfNodesToScore       int32
 	bindTimeoutSeconds             int64
+	cmosConfiguration              config.CmosSchedulerConfiguration
 }
 
 // Option configures a Scheduler
@@ -115,6 +117,12 @@ func WithPercentageOfNodesToScore(percentageOfNodesToScore int32) Option {
 func WithBindTimeoutSeconds(bindTimeoutSeconds int64) Option {
 	return func(o *schedulerOptions) {
 		o.bindTimeoutSeconds = bindTimeoutSeconds
+	}
+}
+
+func WitchStep(cmosConfiguration config.CmosSchedulerConfiguration) Option {
+	return func(o *schedulerOptions) {
+		o.cmosConfiguration = cmosConfiguration
 	}
 }
 
@@ -168,6 +176,7 @@ func New(client clientset.Interface,
 		DisablePreemption:              options.disablePreemption,
 		PercentageOfNodesToScore:       options.percentageOfNodesToScore,
 		BindTimeoutSeconds:             options.bindTimeoutSeconds,
+		CmosConfig:			            &options.cmosConfiguration,
 	})
 	var config *factory.Config
 	source := schedulerAlgorithmSource
