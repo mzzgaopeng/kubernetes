@@ -185,7 +185,7 @@ func (rc *reconciler) reconcile() {
 
 	// Ensure volumes that should be attached/mounted are attached/mounted.
 	for _, volumeToMount := range rc.desiredStateOfWorld.GetVolumesToMount() {
-		volMounted, devicePath, err := rc.actualStateOfWorld.PodExistsInVolume(volumeToMount.PodName, volumeToMount.VolumeName)
+		volMounted, devicePath, err := rc.actualStateOfWorld.PodExistsInVolume(volumeToMount.PodName, volumeToMount.VolumeName, volumeToMount.VolumeToMount.SubpathExists)
 		volumeToMount.DevicePath = devicePath
 		if cache.IsVolumeNotAttachedError(err) {
 			if rc.controllerAttachDetachEnabled || !volumeToMount.PluginIsAttachable {
@@ -227,19 +227,9 @@ func (rc *reconciler) reconcile() {
 					klog.Infof(volumeToMount.GenerateMsgDetailed("operationExecutor.AttachVolume started", ""))
 				}
 			}
-		} else if !volMounted || cache.IsRemountRequiredError(err) {
-			// Volume is not mounted, or is already mounted, but requires remounting
-			remountingLogStr := ""
-			isRemount := cache.IsRemountRequiredError(err)
-			if isRemount {
-				remountingLogStr = "Volume is already mounted to pod, but remount was requested."
-			}
-			klog.V(4).Infof(volumeToMount.GenerateMsgDetailed("Starting operationExecutor.MountVolume", remountingLogStr))
-			err := rc.operationExecutor.MountVolume(
-				rc.waitForAttachTimeout,
-				volumeToMount.VolumeToMount,
-				rc.actualStateOfWorld,
-				isRemount)
+		} else if !volMounted {
+			// Volume is not mounted
+			err = rc.operationExecutor.MountVolume(rc.waitForAttachTimeout, volumeToMount.VolumeToMount, rc.actualStateOfWorld, false)
 			if err != nil &&
 				!nestedpendingoperations.IsAlreadyExists(err) &&
 				!exponentialbackoff.IsExponentialBackoff(err) {
@@ -248,11 +238,22 @@ func (rc *reconciler) reconcile() {
 				klog.Errorf(volumeToMount.GenerateErrorDetailed(fmt.Sprintf("operationExecutor.MountVolume failed (controllerAttachDetachEnabled %v)", rc.controllerAttachDetachEnabled), err).Error())
 			}
 			if err == nil {
-				if remountingLogStr == "" {
-					klog.V(1).Infof(volumeToMount.GenerateMsgDetailed("operationExecutor.MountVolume started", remountingLogStr))
-				} else {
-					klog.V(5).Infof(volumeToMount.GenerateMsgDetailed("operationExecutor.MountVolume started", remountingLogStr))
-				}
+				klog.V(1).Infof(volumeToMount.GenerateMsgDetailed("operationExecutor.MountVolume started", ""))
+			}
+		} else if cache.IsRemountRequiredError(err) {
+			// Volume is already mounted, but requires remounting
+			isRemount := cache.IsRemountRequiredError(err)
+			remountingLogStr := "Volume is already mounted to pod, but remount was requested."
+			err = rc.operationExecutor.MountVolume(rc.waitForAttachTimeout, volumeToMount.VolumeToMount, rc.actualStateOfWorld, isRemount)
+			if err != nil &&
+				!nestedpendingoperations.IsAlreadyExists(err) &&
+				!exponentialbackoff.IsExponentialBackoff(err) {
+				// Ignore nestedpendingoperations.IsAlreadyExists and exponentialbackoff.IsExponentialBackoff errors, they are expected.
+				// Log all other errors.
+				klog.Errorf(volumeToMount.GenerateErrorDetailed(fmt.Sprintf("operationExecutor.MountVolume failed (controllerAttachDetachEnabled %v)", rc.controllerAttachDetachEnabled), err).Error())
+			}
+			if err == nil {
+				klog.V(5).Infof(volumeToMount.GenerateMsgDetailed("operationExecutor.MountVolume started", remountingLogStr))
 			}
 		} else if cache.IsFSResizeRequiredError(err) &&
 			utilfeature.DefaultFeatureGate.Enabled(features.ExpandInUsePersistentVolumes) {
@@ -358,6 +359,7 @@ type reconstructedVolume struct {
 	reportedInUse       bool
 	mounter             volumepkg.Mounter
 	blockVolumeMapper   volumepkg.BlockVolumeMapper
+	bpathExists         bool
 }
 
 // syncStates scans the volume directories under the given pod directory.

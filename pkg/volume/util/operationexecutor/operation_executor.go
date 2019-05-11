@@ -343,6 +343,9 @@ type VolumeToMount struct {
 	// ReportedInUse indicates that the volume was successfully added to the
 	// VolumesInUse field in the node's status.
 	ReportedInUse bool
+
+	//if the mountPath in volumeMounts contains subpath
+	SubpathExists bool
 }
 
 // GenerateMsgDetailed returns detailed msgs for volumes to mount

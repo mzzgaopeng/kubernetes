@@ -108,7 +108,7 @@ type ActualStateOfWorld interface {
 	// volumes, depend on this to update the contents of the volume.
 	// All volume mounting calls should be idempotent so a second mount call for
 	// volumes that do not need to update contents should not fail.
-	PodExistsInVolume(podName volumetypes.UniquePodName, volumeName v1.UniqueVolumeName) (bool, string, error)
+	PodExistsInVolume(podName volumetypes.UniquePodName, volumeName v1.UniqueVolumeName, subpathExists bool) (bool, string, error)
 
 	// VolumeExistsWithSpecName returns true if the given volume specified with the
 	// volume spec name (a.k.a., InnerVolumeSpecName) exists in the list of
@@ -621,7 +621,8 @@ func (asw *actualStateOfWorld) DeleteVolume(volumeName v1.UniqueVolumeName) erro
 
 func (asw *actualStateOfWorld) PodExistsInVolume(
 	podName volumetypes.UniquePodName,
-	volumeName v1.UniqueVolumeName) (bool, string, error) {
+	volumeName v1.UniqueVolumeName, 
+	subpathExists bool) (bool, string, error) {
 	asw.RLock()
 	defer asw.RUnlock()
 
@@ -631,7 +632,7 @@ func (asw *actualStateOfWorld) PodExistsInVolume(
 	}
 
 	podObj, podExists := volumeObj.mountedPods[podName]
-	if podExists {
+	if podExists && podObj.remountRequired && !subpathExists {
 		if podObj.remountRequired {
 			return true, volumeObj.devicePath, newRemountRequiredError(volumeObj.volumeName, podObj.podName)
 		}

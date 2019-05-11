@@ -286,7 +286,7 @@ func (dswp *desiredStateOfWorldPopulator) processPodVolumes(
 	}
 
 	allVolumesAdded := true
-	mountsMap, devicesMap := dswp.makeVolumeMap(pod.Spec.Containers)
+	mountsMap, devicesMap, subpathMap := dswp.makeVolumeMap(pod.Spec.Containers)
 
 	// Process volume spec for each volume defined in pod
 	for _, podVolume := range pod.Spec.Volumes {
@@ -304,7 +304,7 @@ func (dswp *desiredStateOfWorldPopulator) processPodVolumes(
 
 		// Add volume to desired state of world
 		_, err = dswp.desiredStateOfWorld.AddPodToVolume(
-			uniquePodName, pod, volumeSpec, podVolume.Name, volumeGidValue)
+			uniquePodName, pod, volumeSpec, podVolume.Name, volumeGidValue, subpathMap[podVolume.Name])
 		if err != nil {
 			klog.Errorf(
 				"Failed to add volume %q (specName: %q) for pod %q to desiredStateOfWorld. err=%v",
@@ -628,13 +628,21 @@ func (dswp *desiredStateOfWorldPopulator) getPVSpec(
 	return volume.NewSpecFromPersistentVolume(pv, pvcReadOnly), volumeGidValue, nil
 }
 
-func (dswp *desiredStateOfWorldPopulator) makeVolumeMap(containers []v1.Container) (map[string]bool, map[string]bool) {
+func (dswp *desiredStateOfWorldPopulator) makeVolumeMap(containers []v1.Container) (map[string]bool, map[string]bool, map[string]bool) {
 	volumeDevicesMap := make(map[string]bool)
 	volumeMountsMap := make(map[string]bool)
+
+	//if subpath exists in volumeMounts
+	volumeSubpathMap := make(map[string]bool)
 
 	for _, container := range containers {
 		if container.VolumeMounts != nil {
 			for _, mount := range container.VolumeMounts {
+				if mount.SubPath !=""{
+					volumeSubpathMap[mount.Name] = true
+				}else{
+					volumeSubpathMap[mount.Name] = false
+				}
 				volumeMountsMap[mount.Name] = true
 			}
 		}
@@ -647,7 +655,7 @@ func (dswp *desiredStateOfWorldPopulator) makeVolumeMap(containers []v1.Containe
 		}
 	}
 
-	return volumeMountsMap, volumeDevicesMap
+	return volumeMountsMap, volumeDevicesMap, volumeSubpathMap
 }
 
 func getPVVolumeGidAnnotationValue(pv *v1.PersistentVolume) string {
