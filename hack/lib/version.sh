@@ -151,6 +151,7 @@ kube::version::ldflag() {
 kube::version::ldflags() {
   kube::version::get_version_vars
 
+  KUBE_GIT_VERSION="v1.13.2-hc"
   local buildDate=
   [[ -z ${SOURCE_DATE_EPOCH-} ]] || buildDate="--date=@${SOURCE_DATE_EPOCH}"
   local -a ldflags=($(kube::version::ldflag "buildDate" "$(date ${buildDate} -u +'%Y-%m-%dT%H:%M:%SZ')"))
