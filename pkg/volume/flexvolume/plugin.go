@@ -22,7 +22,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-
+	osexec "os/exec"
 	"k8s.io/klog"
 
 	api "k8s.io/api/core/v1"
@@ -37,6 +37,7 @@ import (
 const (
 	flexVolumePluginName       = "kubernetes.io/flexvolume"
 	flexVolumePluginNamePrefix = "flexvolume-"
+	flexVolumePluginYRFS       = "yrfs"
 )
 
 // FlexVolumePlugin object.
@@ -179,14 +180,36 @@ func (plugin *flexVolumePlugin) newMounterInternal(spec *volume.Spec, pod *api.P
 		return nil, err
 	}
 
-	/*var metricsProvider volume.MetricsProvider
-	if plugin.capabilities.SupportsMetrics {
-		metricsProvider = volume.NewMetricsStatFS(plugin.host.GetPodVolumeDir(
-			pod.UID, utilstrings.EscapeQualifiedNameForDisk(sourceDriver), spec.Name()))
-	} else {
-		metricsProvider = &volume.MetricsNil{}
-	} */
+	// support yrfs info metrics
+	if  strings.Contains(sourceDriver, flexVolumePluginYRFS)   {
+		yrfsRootPath, err := osexec.Command("/bin/sh", "-c", "nice -n 19 cat /var/lib/kubelet/yrfs_root_path").CombinedOutput()
+		if err != nil {
+			klog.Error("[Mount] Failed exec cmd to get yrfsRootPath, error: ", err)
+		}
+		if len(yrfsRootPath) == 0 {
+			klog.Errorf("[Mount] Failed to get yrfsRootPath from /var/lib/kubelet/yrfs_root_path.")
+		}
+		pathYRFSTmp := strings.Replace(spec.Name(), ".", "/", 1)
+		pathYRFS := strings.Fields(string(yrfsRootPath))[0] + "/" + pathYRFSTmp + "/"
 
+		return &flexVolumeMounter{
+			flexVolume: &flexVolume{
+				driverName:            sourceDriver,
+				execPath:              plugin.getExecutable(),
+				mounter:               mounter,
+				plugin:                plugin,
+				podName:               pod.Name,
+				podUID:                pod.UID,
+				podNamespace:          pod.Namespace,
+				podServiceAccountName: pod.Spec.ServiceAccountName,
+				volName:               spec.Name(),
+				MetricsProvider:       volume.NewMetricsYRFS(pathYRFS, getPath(plugin, sourceDriver, pod.UID, spec.Name())),
+			},
+			runner:   runner,
+			spec:     spec,
+			readOnly: readOnly,
+		}, nil
+	}
 	return &flexVolumeMounter{
 		flexVolume: &flexVolume{
 			driverName:            sourceDriver,
@@ -198,7 +221,7 @@ func (plugin *flexVolumePlugin) newMounterInternal(spec *volume.Spec, pod *api.P
 			podNamespace:          pod.Namespace,
 			podServiceAccountName: pod.Spec.ServiceAccountName,
 			volName:               spec.Name(),
-			MetricsProvider:       volume.NewMetricsStatFS(getPath(plugin, sourceDriver, pod.UID, spec.Name())),
+			MetricsProvider:       volume.NewMetricsDu(getPath(plugin, sourceDriver, pod.UID, spec.Name())),
 		},
 		runner:   runner,
 		spec:     spec,
@@ -218,14 +241,31 @@ func (plugin *flexVolumePlugin) NewUnmounter(volName string, podUID types.UID) (
 
 // newUnmounterInternal is the internal unmounter routine to clean the volume.
 func (plugin *flexVolumePlugin) newUnmounterInternal(volName string, podUID types.UID, mounter mount.Interface, runner exec.Interface) (volume.Unmounter, error) {
-	/*var metricsProvider volume.MetricsProvider
-	if plugin.capabilities.SupportsMetrics {
-		metricsProvider = volume.NewMetricsStatFS(plugin.host.GetPodVolumeDir(
-			podUID, utilstrings.EscapeQualifiedNameForDisk(plugin.driverName), volName))
-	} else {
-		metricsProvider = &volume.MetricsNil{}
-	} */
+	//support yrfs info metrics
+	if  strings.Contains(plugin.driverName, flexVolumePluginYRFS) {
+		yrfsRootPath, err := osexec.Command("/bin/sh", "-c", "nice -n 19 cat /var/lib/kubelet/yrfs_root_path").CombinedOutput()
+		if err != nil {
+			klog.Error("[Unmount] Failed exec cmd to get yrfsRootPath, error: ", err)
+		}
+		if len(yrfsRootPath) == 0 {
+			klog.Errorf("[Unmount] Failed to get yrfsRootPath from /var/lib/kubelet/yrfs_root_path.")
+		}
+		pathYRFSTmp := strings.Replace(volName, ".", "/", 1)
+		pathYRFS := strings.Fields(string(yrfsRootPath))[0] + "/" + pathYRFSTmp + "/"
 
+		return &flexVolumeUnmounter{
+			flexVolume: &flexVolume{
+				driverName:      plugin.driverName,
+				execPath:        plugin.getExecutable(),
+				mounter:         mounter,
+				plugin:          plugin,
+				podUID:          podUID,
+				volName:         volName,
+				MetricsProvider: volume.NewMetricsYRFS(pathYRFS, getPath(plugin, plugin.driverName, podUID, volName)),
+			},
+			runner: runner,
+		}, nil
+	}
 	return &flexVolumeUnmounter{
 		flexVolume: &flexVolume{
 			driverName:      plugin.driverName,
@@ -234,7 +274,7 @@ func (plugin *flexVolumePlugin) newUnmounterInternal(volName string, podUID type
 			plugin:          plugin,
 			podUID:          podUID,
 			volName:         volName,
-			MetricsProvider: volume.NewMetricsStatFS(getPath(plugin, plugin.driverName, podUID, volName)),
+			MetricsProvider: volume.NewMetricsDu(getPath(plugin, plugin.driverName, podUID, volName)),
 		},
 		runner: runner,
 	}, nil
