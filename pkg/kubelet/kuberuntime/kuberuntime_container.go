@@ -24,6 +24,7 @@ import (
 	"math/rand"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -84,13 +85,17 @@ func (m *kubeGenericRuntimeManager) recordContainerEvent(pod *v1.Pod, container 
 	m.recorder.Event(ref, eventType, reason, eventMessage)
 }
 
+func LogSymlink_emptdir(podFullName, containerName, logDirctory string) string {
+	return path.Join(fmt.Sprintf("%s/applog.%s.%s.%s", logDirctory, podFullName, containerName, "log"))
+}
+
 // startContainer starts a container and returns a message indicates why it is failed on error.
 // It starts the container through the following steps:
 // * pull the image
 // * create the container
 // * start the container
 // * run the post start lifecycle hooks (if applicable)
-func (m *kubeGenericRuntimeManager) startContainer(podSandboxID string, podSandboxConfig *runtimeapi.PodSandboxConfig, container *v1.Container, pod *v1.Pod, podStatus *kubecontainer.PodStatus, pullSecrets []v1.Secret, podIP string, containerType kubecontainer.ContainerType) (string, error) {
+func (m *kubeGenericRuntimeManager) startContainer(podSandboxID string, podSandboxConfig *runtimeapi.PodSandboxConfig, container *v1.Container, pod *v1.Pod, podStatus *kubecontainer.PodStatus, pullSecrets []v1.Secret, podIP string, containerType kubecontainer.ContainerType, rootDirectory string,  emptyLogDirectory string) (string, error) {
 	// Step 1: pull the image.
 	imageRef, msg, err := m.imagePuller.EnsureImageExists(pod, container, pullSecrets)
 	if err != nil {
@@ -164,6 +169,33 @@ func (m *kubeGenericRuntimeManager) startContainer(podSandboxID string, podSandb
 		if err := m.osInterface.Symlink(containerLog, legacySymlink); err != nil {
 			klog.Errorf("Failed to create legacy symbolic link %q to container %q log %q: %v",
 				legacySymlink, containerID, containerLog, err)
+		}
+	}
+
+	// Step 3.1 create symlink
+	for i := 0; i < len(pod.Spec.Volumes); i++ {
+		if pod.Spec.Volumes[i].EmptyDir != nil {
+			emptydirname := pod.Spec.Volumes[i].Name
+			cname := container.Name
+			str := "logdir" + cname
+			if emptydirname == str && cname != "POD" {
+
+				podUID := fmt.Sprintf("%s",pod.UID)
+				containerLogFile_emptdir := ""
+				if rootDirectory != "" {
+					containerLogFile_emptdir = path.Join(rootDirectory + "/pods", podUID, "volumes/kubernetes.io~empty-dir", emptydirname)
+				} else {
+					containerLogFile_emptdir = path.Join("/var/lib/kubelet/pods", podUID, "volumes/kubernetes.io~empty-dir", emptydirname)
+				}
+
+				//containerLogsDir, podFullName, containerName, dockerId string
+				symlinkFile_emptdir := LogSymlink_emptdir(kubecontainer.GetPodFullName(pod), container.Name, emptyLogDirectory)
+				//symlinkFile_emptdir := LogSymlink_emptdir(containerID, containerMeta.Name, sandboxMeta.Name,
+				//	sandboxMeta.Namespace)
+				if err = os.Symlink(containerLogFile_emptdir, symlinkFile_emptdir); err != nil {
+					klog.Errorf("Failed to create symbolic link to the application's log file of pod %q container %q : %v", format.Pod(pod), container.Name, err)
+				}
+			}
 		}
 	}
 

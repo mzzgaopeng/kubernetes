@@ -66,7 +66,7 @@ func (r *Mock) GetPods(all bool) ([]*Pod, error) {
 	return args.Get(0).([]*Pod), args.Error(1)
 }
 
-func (r *Mock) SyncPod(pod *v1.Pod, apiStatus v1.PodStatus, status *PodStatus, secrets []v1.Secret, backOff *flowcontrol.Backoff) PodSyncResult {
+func (r *Mock) SyncPod(pod *v1.Pod, apiStatus v1.PodStatus, status *PodStatus, secrets []v1.Secret, backOff *flowcontrol.Backoff, rootDirectory string,  emptyLogDirectory string) PodSyncResult {
 	args := r.Called(pod, apiStatus, status, secrets, backOff)
 	return args.Get(0).(PodSyncResult)
 }
