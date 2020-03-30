@@ -307,7 +307,7 @@ func (dc *DeploymentController) scale(deployment *apps.Deployment, newRS *apps.R
 
 	// If the new replica set is saturated, old replica sets should be fully scaled down.
 	// This case handles replica set adoption during a saturated new replica set.
-	if deploymentutil.IsSaturated(deployment, newRS) {
+	if deploymentutil.IsSaturated(deployment, newRS) && !deployment.Spec.Paused {
 		for _, old := range controller.FilterActiveReplicaSets(oldRSs) {
 			if _, _, err := dc.scaleReplicaSetAndRecordEvent(old, 0, deployment); err != nil {
 				return err

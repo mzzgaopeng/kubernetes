@@ -364,7 +364,18 @@ func (ssc *defaultStatefulSetControl) updateStatefulSet(
 	if set.DeletionTimestamp != nil {
 		return &status, nil
 	}
-
+    //Cluster maintenance status --start
+    annotation := set.Annotations
+    pause, ok := annotation["pause.harmonycloud.cn"]
+    if !ok{
+    	klog.V(4).Info("pause state key not found.")
+	}
+    klog.Warning("updatel: ",status)
+    if "true" == pause {
+		klog.V(4).Info("statusful处于维修状态，仅更新状态。")
+		return &status, nil
+	}
+    //Cluster maintenance status --end
 	monotonic := !allowsBurst(set)
 
 	// Examine each replica with respect to its ordinal
