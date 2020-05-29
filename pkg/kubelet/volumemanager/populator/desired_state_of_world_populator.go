@@ -208,7 +208,17 @@ func (dswp *desiredStateOfWorldPopulator) findAndAddNewPods() {
 			// Do not (re)add volumes for terminated pods
 			continue
 		}
-		dswp.processPodVolumes(pod, mountedVolumesForPod, processedVolumesForFSResize)
+		for _, container := range pod.Spec.Containers {
+			if container.VolumeMounts != nil {
+				for _, mount := range container.VolumeMounts {
+					if mount.SubPath != "" {
+						dswp.processPodVolumes(pod, mountedVolumesForPod, processedVolumesForFSResize, true)
+					} else {
+						dswp.processPodVolumes(pod, mountedVolumesForPod, processedVolumesForFSResize, false)
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -265,7 +275,7 @@ func (dswp *desiredStateOfWorldPopulator) findAndRemoveDeletedPods() {
 				format.Pod(volumeToMount.Pod))
 			continue
 		}
-		exists, _, _ := dswp.actualStateOfWorld.PodExistsInVolume(volumeToMount.PodName, volumeToMount.VolumeName)
+		exists, _, _ := dswp.actualStateOfWorld.PodExistsInVolume(volumeToMount.PodName, volumeToMount.VolumeName, volumeToMount.SubpathExists)
 		if !exists && podExists {
 			klog.V(4).Infof(
 				volumeToMount.GenerateMsgDetailed(fmt.Sprintf("Actual state has not yet has this volume mounted information and pod (%q) still exists in pod manager, skip removing volume from desired state",
@@ -292,7 +302,8 @@ func (dswp *desiredStateOfWorldPopulator) findAndRemoveDeletedPods() {
 func (dswp *desiredStateOfWorldPopulator) processPodVolumes(
 	pod *v1.Pod,
 	mountedVolumesForPod map[volumetypes.UniquePodName]map[string]cache.MountedVolume,
-	processedVolumesForFSResize sets.String) {
+	processedVolumesForFSResize sets.String,
+	subpathExists bool) {
 	if pod == nil {
 		return
 	}
@@ -329,7 +340,7 @@ func (dswp *desiredStateOfWorldPopulator) processPodVolumes(
 
 		// Add volume to desired state of world
 		_, err = dswp.desiredStateOfWorld.AddPodToVolume(
-			uniquePodName, pod, volumeSpec, podVolume.Name, volumeGidValue)
+			uniquePodName, pod, volumeSpec, podVolume.Name, volumeGidValue, subpathExists)
 		if err != nil {
 			klog.Errorf(
 				"Failed to add volume %s (specName: %s) for pod %q to desiredStateOfWorld: %v",

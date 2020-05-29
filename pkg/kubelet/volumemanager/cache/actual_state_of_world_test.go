@@ -632,7 +632,7 @@ func verifyPodExistsInVolumeAsw(
 	expectedDevicePath string,
 	asw ActualStateOfWorld) {
 	podExistsInVolume, devicePath, err :=
-		asw.PodExistsInVolume(expectedPodName, expectedVolumeName)
+		asw.PodExistsInVolume(expectedPodName, expectedVolumeName, false)
 	if err != nil {
 		t.Fatalf(
 			"ASW PodExistsInVolume failed. Expected: <no error> Actual: <%v>", err)
@@ -659,7 +659,7 @@ func verifyPodDoesntExistInVolumeAsw(
 	expectVolumeToExist bool,
 	asw ActualStateOfWorld) {
 	podExistsInVolume, devicePath, err :=
-		asw.PodExistsInVolume(podToCheck, volumeToCheck)
+		asw.PodExistsInVolume(podToCheck, volumeToCheck, false)
 	if !expectVolumeToExist && err == nil {
 		t.Fatalf(
 			"ASW PodExistsInVolume did not return error. Expected: <error indicating volume does not exist> Actual: <%v>", err)

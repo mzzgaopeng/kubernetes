@@ -54,7 +54,7 @@ type DesiredStateOfWorld interface {
 	// added.
 	// If a pod with the same unique name already exists under the specified
 	// volume, this is a no-op.
-	AddPodToVolume(podName types.UniquePodName, pod *v1.Pod, volumeSpec *volume.Spec, outerVolumeSpecName string, volumeGidValue string) (v1.UniqueVolumeName, error)
+	AddPodToVolume(podName types.UniquePodName, pod *v1.Pod, volumeSpec *volume.Spec, outerVolumeSpecName string, volumeGidValue string, subpathExists bool) (v1.UniqueVolumeName, error)
 
 	// MarkVolumesReportedInUse sets the ReportedInUse value to true for the
 	// reportedVolumes. For volumes not in the reportedVolumes list, the
@@ -204,6 +204,9 @@ type podToMount struct {
 	// volume claim, this contains the volume.Spec.Name() of the persistent
 	// volume claim
 	outerVolumeSpecName string
+
+	//if the mountPath in volumeMounts contains subpath
+	subpathExists bool
 }
 
 const (
@@ -217,7 +220,8 @@ func (dsw *desiredStateOfWorld) AddPodToVolume(
 	pod *v1.Pod,
 	volumeSpec *volume.Spec,
 	outerVolumeSpecName string,
-	volumeGidValue string) (v1.UniqueVolumeName, error) {
+	volumeGidValue string,
+	subpathExists bool) (v1.UniqueVolumeName, error) {
 	dsw.Lock()
 	defer dsw.Unlock()
 
@@ -287,6 +291,7 @@ func (dsw *desiredStateOfWorld) AddPodToVolume(
 		pod:                 pod,
 		volumeSpec:          volumeSpec,
 		outerVolumeSpecName: outerVolumeSpecName,
+		subpathExists:       subpathExists,
 	}
 	return volumeName, nil
 }
@@ -404,6 +409,7 @@ func (dsw *desiredStateOfWorld) GetVolumesToMount() []VolumeToMount {
 						OuterVolumeSpecName:     podObj.outerVolumeSpecName,
 						VolumeGidValue:          volumeObj.volumeGidValue,
 						ReportedInUse:           volumeObj.reportedInUse,
+						SubpathExists:           podObj.subpathExists,
 						DesiredSizeLimit:        volumeObj.desiredSizeLimit}})
 		}
 	}

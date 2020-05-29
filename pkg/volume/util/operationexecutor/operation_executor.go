@@ -352,6 +352,8 @@ type VolumeToMount struct {
 	// DesiredSizeLimit indicates the desired upper bound on the size of the volume
 	// (if so implemented)
 	DesiredSizeLimit *resource.Quantity
+
+	SubpathExists bool
 }
 
 // GenerateMsgDetailed returns detailed msgs for volumes to mount
