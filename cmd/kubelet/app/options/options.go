@@ -46,7 +46,7 @@ import (
 )
 
 const defaultRootDir = "/var/lib/kubelet"
-const defaultEmptyLogDir = "/var/log/containers"
+const defaultLogDir = "/var/log/containers"
 
 // A configuration field should go in KubeletFlags instead of KubeletConfiguration if any of these are true:
 // - its value will never, or cannot safely be changed during the lifetime of a node
@@ -104,8 +104,8 @@ type KubeletFlags struct {
 	// mounts,etc).
 	RootDirectory string
 
-	// emptyLogDirectory is the directory path to place empty log files
-	EmptyLogDirectory string
+	// logDirectory is the directory path to place pod log files
+	LogDirectory string
 
 	// The Kubelet will use this directory for checkpointing downloaded configurations and tracking configuration health.
 	// The Kubelet will create this directory if it does not already exist.
@@ -227,7 +227,7 @@ func NewKubeletFlags() *KubeletFlags {
 		ContainerRuntimeOptions:             *NewContainerRuntimeOptions(),
 		CertDirectory:                       "/var/lib/kubelet/pki",
 		RootDirectory:                       defaultRootDir,
-		EmptyLogDirectory:                   defaultEmptyLogDir,
+		LogDirectory:                        defaultLogDir,
 		MasterServiceNamespace:              metav1.NamespaceDefault,
 		MaxContainerCount:                   -1,
 		MaxPerPodContainerCount:             1,
@@ -405,7 +405,7 @@ func (f *KubeletFlags) AddFlags(mainfs *pflag.FlagSet) {
 
 	fs.StringVar(&f.RootDirectory, "root-dir", f.RootDirectory, "Directory path for managing kubelet files (volume mounts,etc).")
 	// @Tony add log-dir
-	fs.StringVar(&f.EmptyLogDirectory, "empty-log-dir", f.EmptyLogDirectory, "Directory path for managing empty log files.")
+	fs.StringVar(&f.LogDirectory, "log-dir", f.LogDirectory, "Directory path for managing pod log files.")
 
 	fs.Var(&f.DynamicConfigDir, "dynamic-config-dir", "The Kubelet will use this directory for checkpointing downloaded configurations and tracking configuration health. The Kubelet will create this directory if it does not already exist. The path may be absolute or relative; relative paths start at the Kubelet's current working directory. Providing this flag enables dynamic Kubelet configuration. The DynamicKubeletConfig feature gate must be enabled to pass this flag; this gate currently defaults to true because the feature is beta.")
 
