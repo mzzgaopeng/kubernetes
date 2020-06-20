@@ -30,11 +30,13 @@ package replicaset
 import (
 	"fmt"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	ZKP "github.com/samuel/go-zookeeper/zk"
 	apps "k8s.io/api/apps/v1"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -452,6 +454,154 @@ func (rsc *ReplicaSetController) processNextWorkItem() bool {
 
 	return true
 }
+// manager deletezkaddress Path
+func GetZkAddress(pod *v1.Pod) []string{
+	var dubbozkaddress []string
+	var cfgzkaddress []string
+	flag := false
+
+	for _,container := range pod.Spec.Containers  {
+
+		for _,env := range container.Env{
+			if env.Name == "CFG_ENABLED"{
+				if env.Value=="true" {
+					flag = true
+				}
+			}
+			if env.Name == "DUBBO_ZK" {
+				if strings.Contains(env.Value,"?"){
+					template := strings.Split(env.Value,"?backup=")
+					//i := strings.Index(template[0],"/")
+					dubbozkaddress = append(dubbozkaddress, strings.TrimLeft(template[0], "zookeeper://"))
+					backupad := strings.Split(template[1],",")
+					for _,addr := range backupad {
+						dubbozkaddress = append(dubbozkaddress, addr)
+					}
+				}else {
+					dubbozkaddress = append(dubbozkaddress, strings.TrimLeft(env.Value, "zookeeper://"))
+				}
+			}else if env.Name == "CFG_ZK" {
+				template := strings.Split(env.Value,",")
+				for _,addr := range template{
+					cfgzkaddress = append(cfgzkaddress,addr)
+				}
+			}
+		}
+	}
+	if flag ==true {
+		return cfgzkaddress
+	}
+	return dubbozkaddress
+}
+func findLeafPath(conn *ZKP.Conn, leafParentNode string, result *[]string, podIp []string, deletePath *[]string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	data, _, err := conn.Children(leafParentNode)
+	if err != nil {
+		klog.Error("Get returned error: %+v", err)
+	}
+	for _, element := range data {
+		finalPath := leafParentNode + "/" + element
+
+		// TODO no catch error
+		if isContain, _ := regexp.MatchString(strings.Join(podIp, "|"), finalPath); isContain {
+			// fmt.Println("deletePath: ", finalPath)
+			*deletePath = append(*deletePath, finalPath)
+		}
+		*result = append(*result, leafParentNode+"/"+element)
+		// fmt.Println(leafParentNode + "/" + element)
+	}
+}
+func DeletePath(zkAddress []string, deletePodAddress []string, deleteResponse chan string) {
+	var (
+		path          = "/dubbo"
+		result        = []string{}
+		deletePath    = []string{}
+		svc_wg        = sync.WaitGroup{}
+		delete_wg     = sync.WaitGroup{}
+		errorResponse = make(chan string)
+		conns         = []*ZKP.Conn{}
+		count         = []int{0}
+	)
+
+	for _, zkAddr := range zkAddress {
+		zk, _, err := ZKP.Connect([]string{zkAddr}, time.Second*15)
+		if err != nil {
+			klog.Error("Connect returned error: %+v", err)
+		}
+		conns = append(conns, zk)
+	}
+
+
+
+	leafParentNode, _, err := conns[0].Children(path)
+	if err != nil {
+		klog.Error("Get returned error: %+v", err)
+	}
+	defer conns[0].Close()
+
+	for index, element := range leafParentNode {
+		leafParentNode[index] = "/dubbo/" + element + "/providers"
+	}
+
+	getAllPathTime := time.Now()
+
+	for _, l := range leafParentNode {
+		svc_wg.Add(1)
+		go findLeafPath(conns[0], l, &result, deletePodAddress, &deletePath, &svc_wg)
+	}
+	svc_wg.Wait()
+	klog.V(4).Info("get all path: ", time.Since(getAllPathTime), " count: ", len(result))
+	deleteTime := time.Now()
+
+	//klog.V(5).Info("leaf path: ", result)
+	go replayError(errorResponse)
+	for _, finalPath := range deletePath {
+		delete_wg.Add(1)
+		go deleteAsync(conns[0], finalPath, -1, &delete_wg, errorResponse, deleteResponse, &count)
+	}
+
+	delete_wg.Wait()
+
+	if count[0] == 0 {
+		klog.V(4).Info("delete all path: ", time.Since(deleteTime), " count: ", len(deletePath))
+
+	} else {
+		klog.Error("delete all path: ", time.Since(deleteTime), " count: ", len(deletePath), "fail: ", count[0])
+	}
+}
+
+
+func deleteAsync(conn *ZKP.Conn, path string, version int32, wg *sync.WaitGroup, errorResponse chan string, deleteResponse chan string, count *[]int) {
+	defer wg.Done()
+
+	retries := 3
+
+	for retries > 0 {
+
+		err := conn.Delete(path, version)
+		// fmt.Println("delete path: ", path)
+		if err != nil {
+			// fmt.Println("unknown delete path: ", path, " in zookeeper: ", conn.Server())
+			retries = retries - 1
+			time.Sleep(time.Duration(1) * time.Second)
+			errorResponse <- err.Error()
+		} else {
+			break
+		}
+	}
+
+	if retries == 0 {
+		(*count)[0] = (*count)[0] + 1
+		deleteResponse <- "delete path error: " + path
+	}
+}
+
+func replayError(errorResponse chan string) {
+	for {
+		c := <-errorResponse
+		klog.Error("delete error: ", c)
+	}
+}
 
 // manageReplicas checks and updates replicas for the given ReplicaSet.
 // Does NOT modify <filteredPods>.
@@ -534,6 +684,29 @@ func (rsc *ReplicaSetController) manageReplicas(filteredPods []*v1.Pod, rs *apps
 		// orphaned, the rs will only wake up after the expectations have
 		// expired even if other pods are deleted.
 		rsc.expectations.ExpectDeletions(rsKey, getPodKeys(podsToDelete))
+
+		// delete ZkAddress Path
+		var dubboip []string
+		var deleteResponse chan string
+		for _, pods := range  podsToDelete {
+			dubboip = append(dubboip, pods.Status.PodIP)
+			zkaddress := GetZkAddress(pods)
+			if len(zkaddress) != 0 {
+				DeletePath(zkaddress, dubboip, deleteResponse)
+			}
+			newPod := pods.DeepCopy()
+			var plabels = pods.Labels
+			delete(plabels, "app")
+			newPod.Labels = plabels
+			klog.Infof("labels show debug: %v", plabels)
+			klog.Infof("new pod debug: %v", newPod)
+			klog.Infof("olade version: %v", pods.ResourceVersion)
+			_, err = rsc.kubeClient.CoreV1().Pods(pods.Namespace).Update(newPod)
+			if err != nil {
+				return err
+			}
+
+		}
 
 		errCh := make(chan error, diff)
 		var wg sync.WaitGroup
